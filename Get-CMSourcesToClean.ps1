@@ -373,4 +373,4 @@ foreach($path in $removablePaths){
 
 $PathsToClean | Out-GridView
 
-"Size to cleanup {0} GB" -f ((Get-ChildItem $removablePaths -Recurse | Measure-Object -Property Length -Sum -ErrorAction Stop).Sum / 1MB)
+"Size to cleanup {0} MB" -f ((Get-ChildItem $removablePaths -Recurse | Measure-Object -Property Length -Sum -ErrorAction Stop).Sum / 1MB)
