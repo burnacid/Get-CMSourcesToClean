@@ -26,7 +26,7 @@
 param (
     [parameter(Position = 0, HelpMessage = "Please specify your SCCM Site Code")]
     [ValidateNotNullOrEmpty()]
-	[int] $SiteCode,
+	[string] $SiteCode,
 	
     [parameter(Position = 0, HelpMessage = "Please specify your SCCM Server")]
 	[ValidateNotNullOrEmpty()]
@@ -34,14 +34,14 @@ param (
 	
     [parameter(Position = 0, HelpMessage = "Please specify the source share. This must be with the FQDN of the server")]
 	[ValidateNotNullOrEmpty()]
-	[string] $SourceShare,
-
-    [switch] $debug
+	[string] $SourceShare
 )
 
 $ProviderMachineName = $SiteServer
 
 ## DO NOT CHANGE BELOW ##
+$CMPSSuppressFastNotUsedCheck = $true
+
 $SourceShare = $SourceShare.ToLower()
 
 # Get netbios from SourceShare variable
@@ -55,6 +55,10 @@ $NetBiosPath = ($NetBiosName+"\"+$folderPath).ToLower()
 
 # Get share local path
 $share = gwmi Win32_Share | Where{ $_.Name -eq $folderPath}
+if(-not $share){
+    Write-Host "Local path to Sources folder could not be found" -ForegroundColor Red
+    exit 80000001
+}
 $sharePath = $share.Path.ToLower()
 
 # Get posible drive share paths 
@@ -232,45 +236,45 @@ ForEach($source in $packages){
         if($sourceLower -like "$NetBiosPath*"){
             # Translate \\SCCMHOST\Share
 
-            if($debug){
+            if($true -eq $verbose){
                 Write-Host "Unknown Folder Path: $sourceLower" -ForegroundColor Yellow -NoNewline
             }
             $sourceLower = $sourceLower.Replace($NetBiosPath, $sharePath)
-            if($debug){
+            if($true -eq $verbose){
                 Write-Host " -> $sourceLower" -ForegroundColor Green
             }
         }elseif($sourceLower -like "$SourceShare*"){
             # Translate \\SCCMHOST.FQDN.LOCAL\Share
 
-            if($debug){
+            if($true -eq $verbose){
                 Write-Host "Unknown Folder Path: $sourceLower" -ForegroundColor Yellow -NoNewline
             }
             $sourceLower = $sourceLower.Replace($SourceShare, $sharePath)
-            if($debug){
+            if($true -eq $verbose){
                 Write-Host " -> $sourceLower" -ForegroundColor Green
             }
         }elseif($sourceLower -like "$diskShare*"){
             # Translate \\SCCMHOST.FQDN.LOCAL\C$\folderpath
 
-            if($debug){
+            if($true -eq $verbose){
                 Write-Host "Unknown Folder Path: $sourceLower" -ForegroundColor Yellow -NoNewline
             }
             $sourceLower = $sourceLower.Replace($diskShare, $sharePath)
-            if($debug){
+            if($true -eq $verbose){
                 Write-Host " -> $sourceLower" -ForegroundColor Green
             }
         }elseif($sourceLower -like "$diskShareNetbios*"){
             # Translate \\SCCMHOST\X$\folderpath
-            if($debug){
+            if($true -eq $verbose){
                 Write-Host "Unknown Folder Path: $sourceLower" -ForegroundColor Yellow -NoNewline
             }
             $sourceLower = $sourceLower.Replace($diskShareNetbios, $sharePath)
-            if($debug){
+            if($true -eq $verbose){
                 Write-Host " -> $sourceLower" -ForegroundColor Green
             }
         }elseif($sourceLower -notlike $SourceShare.ToLower()+"*"){
             # Error if non of the above / not like expected format
-            if($debug){
+            if($true -eq $verbose){
                 Write-Host "Unknown Folder Path: $sourceLower" -ForegroundColor Red
             }
             continue
@@ -303,9 +307,7 @@ $allPaths | ForEach-Object{
     }
 }
 
-Set-Location C:
-
-$storageRoot = $sharePath
+Set-Location $sharePath
 
 #Define an empty array to hold the removable paths i.e paths that aren't in $allPath nor have any children in $allPath
 $removablePaths = @()
@@ -354,23 +356,27 @@ Function CanBeRemoved($path){
     return $false
 }
 
-WalkTree $storageRoot | Out-Null
+WalkTree $sharePath | Out-Null
 
-$PathsToClean = @()
-foreach($path in $removablePaths){
-    try{
-        $size = ((Get-ChildItem $path -Recurse | Measure-Object -Property Length -Sum -ErrorAction Stop).Sum / 1MB)
-    }catch{
-        $size = 0
-    }
+if($removablePaths.Length -ne 0){
+    $PathsToClean = @()
+    foreach($path in $removablePaths){
+        try{
+            $size = ((Get-ChildItem $path -Recurse | Measure-Object -Property Length -Sum -ErrorAction Stop).Sum / 1MB)
+        }catch{
+            $size = 0
+        }
     
-    $PathToClean = New-Object PSObject
-	$PathToClean | Add-Member -type NoteProperty -Name 'Path' -Value $path
-    $PathToClean | Add-Member -type NoteProperty -Name 'Size (MB)' -Value $size
+        $PathToClean = New-Object PSObject
+	    $PathToClean | Add-Member -type NoteProperty -Name 'Path' -Value $path
+        $PathToClean | Add-Member -type NoteProperty -Name 'Size (MB)' -Value $size
 
-    $PathsToClean += $PathToClean
+        $PathsToClean += $PathToClean
+    }
+
+    $PathsToClean | Out-GridView
+
+    "Size to cleanup {0} MB" -f ((Get-ChildItem $removablePaths -Recurse | Measure-Object -Property Length -Sum -ErrorAction Stop).Sum / 1MB)
+}else{
+    Write-Host "Nothing to clean" -ForegroundColor Green
 }
-
-$PathsToClean | Out-GridView
-
-"Size to cleanup {0} MB" -f ((Get-ChildItem $removablePaths -Recurse | Measure-Object -Property Length -Sum -ErrorAction Stop).Sum / 1MB)
