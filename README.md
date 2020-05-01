@@ -14,5 +14,6 @@ This scripts searches for sources from
 It outputs the unused folders with their size in MB
 
 ## How to use
-
+```
 .\Get-CMSourcesToClean.ps1 -SiteCode SMS -SiteServer "MECM001.domain.local" -SourceShare "\\MECM001.domain.local\sources"
+```
