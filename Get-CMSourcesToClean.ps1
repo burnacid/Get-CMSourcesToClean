@@ -41,17 +41,18 @@ $ProviderMachineName = $SiteServer
 
 ## DO NOT CHANGE BELOW ##
 $CMPSSuppressFastNotUsedCheck = $true
-
 $SourceShare = $SourceShare.ToLower()
 
 # Get netbios from SourceShare variable
 $NetBiosName = $SourceShare.Split(".")
 $NetBiosName = $NetBiosName[0]
+Write-Verbose "NETBIOS servername: $NetBiosName"
 $FQDNName = $SourceShare.Substring(0,$SourceShare.IndexOf("\",3)).ToLower()
 
 # Create NetBios path
 $FolderPath = $SourceShare.Substring($SourceShare.IndexOf("\",3)+1)
 $NetBiosPath = ($NetBiosName+"\"+$folderPath).ToLower()
+Write-Verbose "NETBIOS Share: $NetBiosPath"
 
 # Get share local path
 $share = gwmi Win32_Share | Where{ $_.Name -eq $folderPath}
@@ -60,10 +61,13 @@ if(-not $share){
     exit 80000001
 }
 $sharePath = $share.Path.ToLower()
+Write-Verbose "Local share folder: $sharePath"
 
 # Get posible drive share paths 
 $diskShare = ($FQDNName+"\"+$sharePath.Replace(":","$")).ToLower()
 $diskShareNetbios = ($NetBiosName+"\"+$sharePath.Replace(":","$")).ToLower()
+
+Write-Verbose "Admin Shares: $diskShare or $diskShareNetbios"
 
 # Import the ConfigurationManager.psd1 module 
 if((Get-Module ConfigurationManager) -eq $null) {
@@ -235,48 +239,34 @@ ForEach($source in $packages){
         # Check and replace if NetBiosPath, localpath or diskshare is used to FQDN
         if($sourceLower -like "$NetBiosPath*"){
             # Translate \\SCCMHOST\Share
-
-            if($true -eq $verbose){
-                Write-Host "Unknown Folder Path: $sourceLower" -ForegroundColor Yellow -NoNewline
-            }
+            
+            Write-Verbose "Unknown Folder Path: $sourceLower"
             $sourceLower = $sourceLower.Replace($NetBiosPath, $sharePath)
-            if($true -eq $verbose){
-                Write-Host " -> $sourceLower" -ForegroundColor Green
-            }
+            Write-Verbose "Translated to $sourceLower"
+            
         }elseif($sourceLower -like "$SourceShare*"){
             # Translate \\SCCMHOST.FQDN.LOCAL\Share
 
-            if($true -eq $verbose){
-                Write-Host "Unknown Folder Path: $sourceLower" -ForegroundColor Yellow -NoNewline
-            }
+            Write-Verbose "Unknown Folder Path: $sourceLower"
             $sourceLower = $sourceLower.Replace($SourceShare, $sharePath)
-            if($true -eq $verbose){
-                Write-Host " -> $sourceLower" -ForegroundColor Green
-            }
+            Write-Verbose "Translated to $sourceLower"
+            
         }elseif($sourceLower -like "$diskShare*"){
             # Translate \\SCCMHOST.FQDN.LOCAL\C$\folderpath
 
-            if($true -eq $verbose){
-                Write-Host "Unknown Folder Path: $sourceLower" -ForegroundColor Yellow -NoNewline
-            }
+            Write-Verbose "Unknown Folder Path: $sourceLower"
             $sourceLower = $sourceLower.Replace($diskShare, $sharePath)
-            if($true -eq $verbose){
-                Write-Host " -> $sourceLower" -ForegroundColor Green
-            }
+            Write-Verbose "Translated to $sourceLower"
+            
         }elseif($sourceLower -like "$diskShareNetbios*"){
             # Translate \\SCCMHOST\X$\folderpath
-            if($true -eq $verbose){
-                Write-Host "Unknown Folder Path: $sourceLower" -ForegroundColor Yellow -NoNewline
-            }
+            Write-Verbose "Unknown Folder Path: $sourceLower"
             $sourceLower = $sourceLower.Replace($diskShareNetbios, $sharePath)
-            if($true -eq $verbose){
-                Write-Host " -> $sourceLower" -ForegroundColor Green
-            }
+            Write-Verbose "Translated to $sourceLower"
+            
         }elseif($sourceLower -notlike $SourceShare.ToLower()+"*"){
             # Error if non of the above / not like expected format
-            if($true -eq $verbose){
-                Write-Host "Unknown Folder Path: $sourceLower" -ForegroundColor Red
-            }
+            Write-Verbose "Unknown Folder Path: $sourceLower"
             continue
         }
 
@@ -303,6 +293,7 @@ $allPaths | ForEach-Object{
     $Item = Get-Item $_    
         if($Item.PSIsContainer -eq $false -and $Item.Extension -notin $Extensions){
             $Extensions += $Item.Extension
+            Write-Verbose "Found file as source. Saving Extension: $Item.Extension"
         }
     }
 }
@@ -313,10 +304,12 @@ Set-Location $sharePath
 $removablePaths = @()
 Function WalkTree($path){
     $path = $path.ToLower()
+    Write-Verbose "CHECKING: $path"
     if(CanBeRemoved $path){
         #If this is a file return it
         $item = Get-Item -Path $path | select *
         if($item.PSIsContainer -eq $false){
+            Write-Debug "FILE: Flagged for removal"
             return $path
         }
 
@@ -324,22 +317,27 @@ Function WalkTree($path){
         $children = Get-ChildItem $path | Where-Object{$_.Extension -in $Extensions -or $_.PSIsContainer -eq $true} | select -ExpandProperty fullName
         if($children.Count -eq 0){
             #The folder has no children and can be removed
+            Write-Debug "FOLDER: No childern to check. Marked for removal"
             $global:removablePaths += $path
             return $path
         }
         else{
             #Start a new counter for subfolders (children)
+            Write-Debug "FOLDER: Childern found checking..."
             $removableChildren = @()
             $children | ForEach-Object {
                 #Run this function for all subfolders
                 $removableChildren += WalkTree ($_)
             }
             if($children.Count -eq $removableChildren.Count){
+                Write-Debug "FOLDER: $path has no child items that are used as source. Marked for removal"
                 #If the number of removeable subfolders are the same as the number of subfolders
                 #Clean up the $removeablePaths array by deleteing all subfolders from it
                 $global:removablePaths = @($global:removablePaths | Where-Object {$_ -notlike "$path*"})
                 $global:removablePaths += $path
                 return $path
+            }else{
+                Write-Debug "FOLDER: $path has source folders as child. Folder can't be removed"
             }
         }
     }
@@ -351,6 +349,7 @@ Function WalkTree($path){
 
 Function CanBeRemoved($path){
     if($allPaths -notcontains $path.ToLower()){
+        Write-Verbose "FOUND SOURCE: $path"
         return $true
     }
     return $false
@@ -358,25 +357,27 @@ Function CanBeRemoved($path){
 
 WalkTree $sharePath | Out-Null
 
-if($removablePaths.Length -ne 0){
-    $PathsToClean = @()
-    foreach($path in $removablePaths){
-        try{
-            $size = ((Get-ChildItem $path -Recurse | Measure-Object -Property Length -Sum -ErrorAction Stop).Sum / 1MB)
-        }catch{
-            $size = 0
-        }
-    
-        $PathToClean = New-Object PSObject
-	    $PathToClean | Add-Member -type NoteProperty -Name 'Path' -Value $path
-        $PathToClean | Add-Member -type NoteProperty -Name 'Size (MB)' -Value $size
 
-        $PathsToClean += $PathToClean
+$PathsToClean = @()
+foreach($path in $removablePaths){
+    if($path -eq ''){
+        continue
     }
+    try{
+        $size = ((Get-ChildItem $path -Recurse | Measure-Object -Property Length -Sum -ErrorAction Stop).Sum / 1MB)
+    }catch{
+        $size = 0
+    }
+    
+    $PathToClean = New-Object PSObject
+	$PathToClean | Add-Member -type NoteProperty -Name 'Path' -Value $path
+    $PathToClean | Add-Member -type NoteProperty -Name 'Size (MB)' -Value $size
 
-    $PathsToClean | Out-GridView
+    $PathsToClean += $PathToClean
+}
 
+$PathsToClean | Out-GridView
+
+if($PathsToClean.Count -ne 0){
     "Size to cleanup {0} MB" -f ((Get-ChildItem $removablePaths -Recurse | Measure-Object -Property Length -Sum -ErrorAction Stop).Sum / 1MB)
-}else{
-    Write-Host "Nothing to clean" -ForegroundColor Green
 }
