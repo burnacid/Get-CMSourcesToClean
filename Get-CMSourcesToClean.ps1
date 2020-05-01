@@ -380,4 +380,6 @@ $PathsToClean | Out-GridView
 
 if($PathsToClean.Count -ne 0){
     "Size to cleanup {0} MB" -f ((Get-ChildItem $removablePaths -Recurse | Measure-Object -Property Length -Sum -ErrorAction Stop).Sum / 1MB)
+}else{
+    Write-Host "Nothing to clean" -ForegroundColor Green
 }
