@@ -23,23 +23,14 @@
     1.0.0 - (2020-05-01) Script created (Stefan Lenders)
 #>
 
-param (
-    [parameter(Position = 0, HelpMessage = "Please specify your SCCM Site Code")]
-    [ValidateNotNullOrEmpty()]
-	[string] $SiteCode,
-	
-    [parameter(Position = 0, HelpMessage = "Please specify your SCCM Server")]
-	[ValidateNotNullOrEmpty()]
-	[string] $SiteServer,
-	
-    [parameter(Position = 0, HelpMessage = "Please specify the source share. This must be with the FQDN of the server")]
-	[ValidateNotNullOrEmpty()]
-	[string] $SourceShare
-)
+[string] $SiteCode='SMS'
+[string] $SiteServer='MECM001.DOMAIN.LOCAL'
+[string] $SourceShare='\\MECM001.DOMAIN.LOCAL\Sources'
 
-$ProviderMachineName = $SiteServer
 
 ## DO NOT CHANGE BELOW ##
+$ProviderMachineName = $SiteServer
+
 $CMPSSuppressFastNotUsedCheck = $true
 $SourceShare = $SourceShare.ToLower()
 
